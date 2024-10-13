@@ -12,8 +12,11 @@ from jwt.exceptions import InvalidTokenError
 
 from passlib.context import CryptContext
 
-from config import SECRET_KEY
+from ..config import SECRET_KEY
 
+from ..dependencies import SessionDep, PublicUser, User, CreateUser
+
+from sqlmodel import select
 
 #### SETTINGS ####
 
@@ -79,16 +82,14 @@ def verify_password(plain_password: str, hashed_password: str):
 
 
 # gets the user with the specified username from the database and returns it with the password
-def get_user(db, username: str) -> WithPasswordUser:
+def get_user(username: str, session: SessionDep) -> WithPasswordUser:
     """DO NOT USE THE RETURN OF THIS FUNCTION AS RESPONSE TO A USER REQUEST (PASSWORD EXPOSED). Currently checks inside the dictionary for a username match, next it will use a database"""
-    if username in db:
-        user_dict = db[username]
-        return WithPasswordUser(**user_dict)
+    return session.exec(select(User).where(User.username == username)).first()
 
 # gets the user by username and checks if username and password are right and returns the user with the password
-def authenticate_user(fake_db, username: str, password: str):
+def authenticate_user(session: SessionDep, username: str, password: str):
     """USER WITH PASSWORD EXPOSED. Checks username (using get_user()) and password"""
-    user = get_user(fake_db, username)
+    user = get_user(username, session)
     if not user:
         return False
     if not verify_password(password, user.password):
@@ -122,7 +123,7 @@ async def get_user_from_token(token: Annotated[str, Depends(oauth2_scheme)]):
         token_data = TokenData(username=username)
     except InvalidTokenError: 
         raise credentials_exception
-    user = get_user(fake_users_db, username=token_data.username)
+    user = get_user(username=token_data.username)
     if user is None:
         raise credentials_exception
     return user
@@ -135,8 +136,8 @@ async def get_user_from_token(token: Annotated[str, Depends(oauth2_scheme)]):
 
 # post route to authenticate using email and password to get a valid token
 @router.post('/token')
-async def get_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
-    user = authenticate_user(fake_users_db, form_data.username, form_data.password)
+async def get_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], session: SessionDep ):
+    user = authenticate_user(session, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -150,8 +151,17 @@ async def get_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
 
 # post route to create a new user with email and password
 @router.post('/register')
-async def register_new_user(user: Annotated[OAuth2PasswordRequestForm, Depends()]):
-    return "post route to create a new user with email and password"
+async def register_new_user(user: Annotated[OAuth2PasswordRequestForm, Depends()], session: SessionDep ):
+    new_user = User.model_validate(user)
+    new_user.password = get_password_hash(new_user.password)
+    existing_user = get_user(new_user.username, session)
+
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username already taken")
+    session.add(new_user)
+    session.commit()
+    session.refresh(new_user)
+    return new_user
 
 # get request to fetch logged user data
 @router.get('/me')
