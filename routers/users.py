@@ -109,7 +109,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     return encoded_jwt
 
 # gets the user from token by decoding the token and using the decoded username to find the right user
-async def get_user_from_token(token: Annotated[str, Depends(oauth2_scheme)]):
+async def get_user_from_token(token: Annotated[str, Depends(oauth2_scheme)], session: SessionDep):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -123,7 +123,7 @@ async def get_user_from_token(token: Annotated[str, Depends(oauth2_scheme)]):
         token_data = TokenData(username=username)
     except InvalidTokenError: 
         raise credentials_exception
-    user = get_user(username=token_data.username)
+    user = get_user(username=token_data.username, session=session)
     if user is None:
         raise credentials_exception
     return user
@@ -164,8 +164,9 @@ async def register_new_user(user: Annotated[OAuth2PasswordRequestForm, Depends()
     return new_user
 
 # get request to fetch logged user data
-@router.get('/me')
-async def user_info():
-    return "get request to fetch logged user data"
+@router.get('/me', response_model=PublicUser)
+async def user_info(token: Annotated[str, Depends(oauth2_scheme)], session: SessionDep):
+    user = await get_user_from_token(token=token, session=session)
+    return user
 
 #### END ROUTES ####
