@@ -48,15 +48,6 @@ router = APIRouter()
 
 #### MODELS ####
 
-# users
-class BaseUser(BaseModel):
-    username: str
-    email: str | None = None
-
-class WithPasswordUser(BaseUser):
-    password: str
-
-
 # tokens
 class Token(BaseModel):
     access_token: str
@@ -82,7 +73,7 @@ def verify_password(plain_password: str, hashed_password: str):
 
 
 # gets the user with the specified username from the database and returns it with the password
-def get_user(username: str, session: SessionDep) -> WithPasswordUser:
+def get_user(username: str, session: SessionDep) -> CreateUser:
     """DO NOT USE THE RETURN OF THIS FUNCTION AS RESPONSE TO A USER REQUEST (PASSWORD EXPOSED). Currently checks inside the dictionary for a username match, next it will use a database"""
     return session.exec(select(User).where(User.username == username)).first()
 
